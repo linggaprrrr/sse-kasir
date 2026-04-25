@@ -48,7 +48,7 @@ function getFiles() {
                 id: file + '-' + stat.mtimeMs,
                 name: file,
                 type: 'image',
-                url: `http://${HOST}:${PORT}/media/${encodeURIComponent(file)}`,
+                url: `/media/${HOST}/${encodeURIComponent(file)}`,
                 size: stat.size,
                 time_added: new Date(stat.mtime).toLocaleString(),
                 mtime: stat.mtimeMs
@@ -78,7 +78,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.post('/start-upload', async (req, res) => {
-    const { kode_transaksi, files } = req.body;
+    console.log('🔥 HIT START-UPLOAD');
+    console.log('BODY:', req.body);
+
+    const { kode_transaksi, files } = req.body || {};
 
     console.log(req.body); // debug
 
