@@ -172,6 +172,7 @@ app.get('/stream', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders(); // establish connection immediately before any data is ready
 
     const folder = req.query.folder || '';
     let lastHash = '';
@@ -186,11 +187,15 @@ app.get('/stream', (req, res) => {
     };
 
     sendData();
-    // Poll every 3 seconds (down from 1s); fs.watch handles instant invalidation
+    // Poll every 3 seconds; fs.watch handles instant invalidation
     const interval = setInterval(sendData, 3000);
+
+    // Heartbeat every 20s to keep the connection alive through proxies/NAT
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 20000);
 
     req.on('close', () => {
         clearInterval(interval);
+        clearInterval(heartbeat);
         res.end();
     });
 });
