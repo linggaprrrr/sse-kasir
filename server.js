@@ -137,6 +137,7 @@ async function getFiles(subFolder = '') {
             result.push({
                 id: entry + '-' + stat.mtimeMs,
                 name: entry,
+                path: subFolder ? `${subFolder}/${entry}` : entry,
                 type: 'image',
                 url: `/media/${relativePath}`,
                 thumb_url: thumbExists ? `/thumbs/${encodeURIComponent(thumbKey)}.jpg` : null,
@@ -205,15 +206,36 @@ const axios = require('axios');
 const FormData = require('form-data');
 
 app.post('/start-upload', async (req, res) => {
-    const { kode_transaksi, files } = req.body || {};
+    const { kode_transaksi, files = [] } = req.body || {};
+    const queue = [];
+    const failed = [];
 
-    for (const fileName of files) {
-        const filePath = path.join(MEDIA_DIR, fileName);
-        if (!fs.existsSync(filePath)) continue;
-        await uploadToWebB(filePath, kode_transaksi, fileName);
+    for (const f of files) {
+        // caller sends either a bare name (root) or { name, path }: path is where to read
+        // the file from, name is what it must be stored as (unique per transaction)
+        const entry = typeof f === 'string' ? { name: path.basename(f), path: f } : (f || {});
+        const relPath = entry.path || entry.name || '';
+        const fileName = entry.name || path.basename(relPath);
+        const filePath = path.resolve(MEDIA_DIR, relPath);
+
+        if (!filePath.startsWith(MEDIA_DIR + path.sep) || !fs.existsSync(filePath)) {
+            console.error('❌ Not found in media dir:', relPath);
+            failed.push(relPath);
+            continue;
+        }
+
+        queue.push({ filePath, fileName });
     }
 
-    res.json({ status: 'done' });
+    // answer before uploading: the POS holds the cashier's screen until this returns,
+    // and the customer page shows the remaining files as they land
+    res.json({ status: failed.length ? 'partial' : 'accepted', total: files.length, queued: queue.length, failed });
+
+    for (const item of queue) {
+        if (!await uploadToWebB(item.filePath, kode_transaksi, item.fileName)) {
+            console.error('❌ Upload failed for', kode_transaksi, item.fileName);
+        }
+    }
 });
 
 async function uploadToWebB(filePath, kode_transaksi, fileName) {
@@ -227,14 +249,18 @@ async function uploadToWebB(filePath, kode_transaksi, fileName) {
             headers: form.getHeaders(),
         });
         console.log('✅ Uploaded:', fileName, response.data);
+        return true;
     } catch (err) {
         console.error('❌ Upload failed:', fileName);
+        console.error('TARGET:', API_URL + '/api/upload-photo');
+        console.error('MESSAGE:', err.message);
+
         if (err.response) {
             console.error('STATUS:', err.response.status);
+            console.error('HEADERS:', err.response.headers);
             console.error('DATA:', err.response.data);
-        } else {
-            console.error(err.message);
         }
+        return false;
     }
 }
 
